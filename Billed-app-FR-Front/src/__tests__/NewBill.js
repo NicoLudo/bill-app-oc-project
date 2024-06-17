@@ -12,6 +12,7 @@ import { ROUTES_PATH, ROUTES } from '../constants/routes.js';
 
 const setupEnvironment = () => {
   Object.defineProperty(window, 'localStorage', { value: localStorageMock });
+  Object.defineProperty(window, 'location', { value: { hash: ROUTES_PATH['NewBill'] } });
   window.localStorage.setItem('user', JSON.stringify({
     type: 'Employee',
     email: 'employee@test.tld',
@@ -19,29 +20,11 @@ const setupEnvironment = () => {
   document.body.innerHTML = NewBillUI();
 };
 
-const createNewBillInstance = () => {
-  const onNavigate = jest.fn();
-  return new NewBill({ document, onNavigate, store, localStorage: window.localStorage });
-};
-
-const createMockFile = (name, type) => {
-  const blob = new Blob(['image content'], { type });
-  Object.defineProperty(blob, 'name', { value: name });
-  return blob;
-};
+const createNewBillInstance = () => new NewBill({ document, onNavigate: jest.fn(), store, localStorage: window.localStorage });
 
 const fillFormFields = (data) => {
-  const fields = [
-    { testId: 'expense-type', value: data.expenseType },
-    { testId: 'expense-name', value: data.expenseName },
-    { testId: 'datepicker', value: data.datepicker },
-    { testId: 'amount', value: data.amount },
-    { testId: 'vat', value: data.vat },
-    { testId: 'pct', value: data.pct },
-    { testId: 'commentary', value: data.commentary }
-  ];
-  fields.forEach(({ testId, value }) => {
-    fireEvent.change(screen.getByTestId(testId), { target: { value } });
+  Object.entries(data).forEach(([key, value]) => {
+    fireEvent.change(screen.getByTestId(key), { target: { value } });
   });
 };
 
@@ -64,16 +47,17 @@ describe("Given I am connected as an employee", () => {
       window.alert = jest.fn();
     });
 
-    const testFileUpload = async (blob, shouldAlert) => {
+    const testFileUpload = async (file, shouldAlert) => {
       const fileInput = screen.getByTestId('file');
-      fireEvent.change(fileInput, { target: { files: [blob] } });
+      fireEvent.change(fileInput, { target: { files: [file] } });
+
       if (shouldAlert) {
         expect(newBill.isFileValid).toBe(false);
       } else {
         expect(newBill.isFileValid).toBe(true);
 
         const formData = new FormData();
-        formData.append('file', blob);
+        formData.append('file', file);
         formData.append('email', JSON.parse(localStorage.getItem("user")).email);
 
         store.bills().create = jest.fn().mockResolvedValue({
@@ -81,7 +65,7 @@ describe("Given I am connected as an employee", () => {
           key: '1234'
         });
 
-        await newBill.handleChangeFile({ target: { files: [blob] }, preventDefault: jest.fn() });
+        await newBill.handleChangeFile({ target: { files: [file] }, preventDefault: jest.fn() });
 
         expect(store.bills().create).toHaveBeenCalledWith({
           data: formData,
@@ -91,36 +75,25 @@ describe("Given I am connected as an employee", () => {
         await waitFor(() => {
           expect(newBill.billId).toBe('1234');
           expect(newBill.fileUrl).toBe('https://localhost:3456/images/test.jpg');
-          expect(newBill.fileName).toBe(blob.name);
+          expect(newBill.fileName).toBe(file.name);
         });
       }
     };
 
     test("with an invalid extension, it should display an alert", async () => {
-      await testFileUpload(createMockFile('foo.txt', 'text/plain'), true);
+      await testFileUpload(new File(['text'], 'foo.txt', { type: 'text/plain' }), true);
     });
 
     test("with a valid extension, it should update the file input and not display an alert", async () => {
-      await testFileUpload(createMockFile('image.png', 'image/png'), false);
+      await testFileUpload(new File(['image'], 'image.png', { type: 'image/png' }), false);
     });
-
-    test("with an invalid extension, it should display an alert", async () => {
-      await testFileUpload(createMockFile('foo.txt', 'text/plain'), true);
-    });
-
-    test("with a valid extension, it should update the file input and not display an alert", async () => {
-      await testFileUpload(createMockFile('image.png', 'image/png'), false);
-      // await testFileUpload(new Fill(['image'], 'image.png', 'image/png'), false);
-    });
-
   });
 
   describe("When I submit the form", () => {
-    let newBill, form;
+    let newBill;
 
     beforeEach(() => {
       newBill = createNewBillInstance();
-      form = screen.getByTestId('form-new-bill');
       store.bills = jest.fn(() => ({
         create: jest.fn().mockResolvedValue({ key: '1234' }),
         update: jest.fn().mockResolvedValue({})
@@ -135,21 +108,19 @@ describe("Given I am connected as an employee", () => {
       newBill = new NewBill({ document, onNavigate, store, localStorage: window.localStorage });
 
       fillFormFields({
-        expenseType: 'Transports',
-        expenseName: 'Vol Paris Londres',
-        datepicker: '2023-01-01',
-        amount: '100',
-        vat: '20',
-        pct: '20',
-        commentary: 'Commentaire',
-        fileName: 'image.png',
-        fileType: 'image/png'
+        'expense-type': 'Transports',
+        'expense-name': 'Vol Paris Londres',
+        'datepicker': '2023-01-01',
+        'amount': '100',
+        'vat': '20',
+        'pct': '20',
+        'commentary': 'Commentaire'
       });
 
       const handleSubmit = jest.spyOn(newBill, 'handleSubmit');
-      form.addEventListener('submit', handleSubmit);
+      screen.getByTestId('form-new-bill').addEventListener('submit', handleSubmit);
 
-      fireEvent.submit(form);
+      fireEvent.submit(screen.getByTestId('form-new-bill'));
 
       expect(handleSubmit).toHaveBeenCalled();
 
